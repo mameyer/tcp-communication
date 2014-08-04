@@ -281,6 +281,8 @@ listener(void *v) {
                 }
                 std::cout << "finished sending ack" << std::endl;
             }
+        } else {
+            select_client.V();
         }
     }
 
