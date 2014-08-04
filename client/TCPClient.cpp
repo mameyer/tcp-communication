@@ -16,6 +16,8 @@ TCPClient::TCPClient(std::string address, int port) : server_address(address), d
     }
 
     std::cout << "socket created: " << this->sock << std::endl;
+    
+    this->conn();
 
     if(pthread_create(&this->receive, 0, receiver, (void *)this))
     {
@@ -90,6 +92,7 @@ TCPClient::conn() {
 
 void
 TCPClient::send_data(std::string data) {
+    assert (data.size() > 0);
     assert (this->sock >= 0);
 
     int allBytesSent = 0;
@@ -100,6 +103,8 @@ TCPClient::send_data(std::string data) {
         
         if (actBytesSent < 0) {
             perror("send failed!\n");
+            close(this->sock);
+            running = false;
             return;
         }
         
@@ -127,6 +132,11 @@ receiver(void * v) {
             if (actBytesRead < 0) {
                 perror("receive failed!");
                 break;
+            } else if (actBytesRead == 0) {
+                 std::cout << "connection reset by peer.. " << buffer << std::endl;
+                 close(client->sock);
+                 running = false;
+                 return 0;
             }
 
             allBytesRead += actBytesRead;

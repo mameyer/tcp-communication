@@ -16,7 +16,6 @@ int main() {
     TCPClient *client = new TCPClient("127.0.0.1", 7171);
     //TCPClient *client = new TCPClient("x02.informatik.uni-bremen.de", 7160);
     //TCPClient *client = new TCPClient("www.heise.de", 80);
-    client->conn();
     //client->send_data("Test\n");
 
     for (int i=0; i<NUM_TEST_MSGS; i++) {

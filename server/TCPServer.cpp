@@ -209,14 +209,15 @@ accept_conn(void * v) {
             sockaddr_storage addr;
             socklen_t socklen = sizeof(addr);
 
-            conn = accept4(server->sd, (sockaddr*)&addr, &socklen, SOCK_NONBLOCK);
+            // conn = accept4(server->sd, (sockaddr*)&addr, &socklen, SOCK_NONBLOCK);
+            conn = accept(server->sd, (sockaddr*)&addr, &socklen);
             std::cout << "accept.. " << conn << std::endl;
             if (conn < 0) {
                 perror("accept");
             } else {
                 // set non-blocking
                 // recv()/send() non blocking
-                server->set_nonblock(conn);
+                // server->set_nonblock(conn);
 
                 server->connections[conn] = NULL;
                 std::cout << "con: " << conn << std::endl;

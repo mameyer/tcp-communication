@@ -20,11 +20,11 @@ private:
     int destination_port;
     struct sockaddr_in server;
     pthread_t receive;
+    void conn();
 public:
     int sock;
     TCPClient(std::string address, int port);
     ~TCPClient();
-    void conn();
     void send_data(std::string data);
     std::string receive_data(int size);
 };
