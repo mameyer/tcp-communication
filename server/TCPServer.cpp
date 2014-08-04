@@ -1,4 +1,5 @@
 #include "TCPServer.hpp"
+#include "../common/common.hpp"
 
 #include <iostream>
 #include <sys/types.h>
@@ -217,7 +218,7 @@ accept_conn(void * v) {
             } else {
                 // set non-blocking
                 // recv()/send() non blocking
-                // server->set_nonblock(conn);
+                // set_nonblock(conn);
 
                 server->connections[conn] = NULL;
                 std::cout << "con: " << conn << std::endl;
@@ -347,14 +348,4 @@ TCPServer::erase_conn(int conn) {
 std::map<int, pthread_t>
 TCPServer::get_conns() {
     return this->connections;
-}
-
-// http://stackoverflow.com/questions/6715736/using-select-for-non-blocking-sockets
-void
-TCPServer::set_nonblock(int socket)
-{
-    int flags;
-    flags = fcntl(socket,F_GETFL,0);
-    assert(flags != -1);
-    fcntl(socket, F_SETFL, flags | O_NONBLOCK);
 }

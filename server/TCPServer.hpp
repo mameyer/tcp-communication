@@ -46,7 +46,6 @@ public:
     int next_to_join();
     int get_sd();
     
-    void set_nonblock(int socket);
     void register_join_reqeust(int conn);
 };
 

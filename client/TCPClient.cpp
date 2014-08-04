@@ -1,12 +1,16 @@
 #include "TCPClient.hpp"
+#include "../common/common.hpp"
+#include "../common/Sema.hh"
 
 #include <assert.h>
 #include <unistd.h>
 #include <pthread.h>
 
 bool running = true;
+Sema access_read_mode(1);
 
 TCPClient::TCPClient(std::string address, int port) : server_address(address), destination_port(port), sock(-1) {
+    this->read_mode = INCOME;
     this->sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (this->sock < 0)
@@ -15,8 +19,9 @@ TCPClient::TCPClient(std::string address, int port) : server_address(address), d
         return;
     }
 
+    // set_nonblock(this->sock);
     std::cout << "socket created: " << this->sock << std::endl;
-    
+
     this->conn();
 
     if(pthread_create(&this->receive, 0, receiver, (void *)this))
@@ -100,18 +105,52 @@ TCPClient::send_data(std::string data) {
 
     while (allBytesSent < data.size()) {
         actBytesSent = send(this->sock, data.c_str(), strlen(data.c_str()), 0);
-        
+
         if (actBytesSent < 0) {
             perror("send failed!\n");
             close(this->sock);
             running = false;
             return;
         }
-        
+
         allBytesSent += actBytesSent;
     }
 
     std::cout << "data sent!" << std::endl;
+}
+
+void flush_receive_buffer() {
+
+}
+
+void
+TCPClient::set_read_mode(read_modes mode)
+{
+    access_read_mode.P();
+    this->read_mode = mode;
+    access_read_mode.V();
+}
+
+read_modes
+TCPClient::get_read_mode()
+{
+    read_modes act_read_mode;
+    
+    access_read_mode.P();
+    act_read_mode = this->read_mode;
+    access_read_mode.V();
+    
+    return act_read_mode;
+}
+
+int
+TCPClient::get_sock() {
+    return this->sock;
+}
+
+void
+TCPClient::close_conn() {
+    close(this->sock);
 }
 
 void *
@@ -119,31 +158,44 @@ receiver(void * v) {
     TCPClient *client = (TCPClient*) v;
 
     assert(client != NULL);
-    assert (client->sock >= 0);
+    assert (client->get_sock() >= 0);
 
     while (running) {
         char buffer[RECEIVE_BUFFER_SIZE];
         int allBytesRead = 0;
         int actBytesRead = 0;
+        
+        read_modes act_read_mode = client->get_read_mode();
 
         while (allBytesRead < (RECEIVE_BUFFER_SIZE-1)) {
-            actBytesRead = recv(client->sock, buffer, sizeof(buffer), 0);
-            
+            actBytesRead = recv(client->get_sock(), buffer, sizeof(buffer), 0);
+
             if (actBytesRead < 0) {
                 perror("receive failed!");
                 break;
             } else if (actBytesRead == 0) {
-                 std::cout << "connection reset by peer.. " << buffer << std::endl;
-                 close(client->sock);
-                 running = false;
-                 return 0;
+                std::cout << "connection reset.. " << std::endl;
+
+                if (allBytesRead > 0) {
+                    buffer[allBytesRead+1] = '\0';
+                    std::cout << "last bytes received: " << buffer << std::endl;
+                }
+
+                client->close_conn();
+                running = false;
+                return 0;
             }
 
             allBytesRead += actBytesRead;
+            if (act_read_mode == INCOME) {
+                break;
+            }
         }
-        
-        buffer[allBytesRead] = '\0';
-        std::cout << "received.. " << buffer << std::endl;
+
+        if (allBytesRead > 0) {
+            buffer[allBytesRead] = '\0';
+            std::cout << "received: " << buffer << std::endl;
+        }
     }
 
     return 0;

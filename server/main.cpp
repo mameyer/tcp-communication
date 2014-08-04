@@ -10,7 +10,7 @@ extern "C"
 #include <unistd.h>
 
 #define NUM_CONNS 10
-#define RUN_TIME 100
+#define RUN_TIME 30
 
 int main() {
     std::cout << "****************************************" << std::endl;

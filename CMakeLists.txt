@@ -18,11 +18,13 @@ add_executable(server
     common/assync_read.c
     server/main.cpp
     server/TCPServer.cpp
+    common/common.cpp
 )
 target_link_libraries(server pthread)
 
 add_executable(client
     client/main.cpp
     client/TCPClient.cpp
+    common/common.cpp
 )
 target_link_libraries(client pthread)
