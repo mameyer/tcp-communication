@@ -99,6 +99,7 @@ void
 TCPClient::send_data(std::string data) {
     assert (data.size() > 0);
     assert (this->sock >= 0);
+    assert (running);
 
     int allBytesSent = 0;
     int actBytesSent = 0;
@@ -151,6 +152,7 @@ TCPClient::get_sock() {
 void
 TCPClient::close_conn() {
     close(this->sock);
+    this->sock = -1;
 }
 
 void *
