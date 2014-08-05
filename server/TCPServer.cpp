@@ -13,14 +13,9 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
-#include "../common/Sema.hh"
 
 #define READ_BUFFER_SIZE 250
 #define MAX_CON 30
-
-Sema threads_to_join(0);
-Sema access_connections(1);
-Sema select_client(0);
 
 /**
  * constructor for TCPServer.
@@ -28,7 +23,7 @@ Sema select_client(0);
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), sd(-1) {
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (this->sd < 0)
@@ -53,29 +48,32 @@ TCPServer::TCPServer(std::string address, int port) : sd(-1) {
     if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int)) < 0) {
         perror("setsockopt");
     }
+    
+    this->register_cmd_handler(PRINT_CONNS, this->print_connections);
+}
 
-    // create thread for accepting stdin input
-    if (pthread_create(&this->stdin_command_reader, 0, stdin_command_read, (void *)this)) {
-        perror("failed to create sdtin_command_reader thread");
+void
+TCPServer::register_cmd_handler(enum CmdIds id, void (*handler)(TCPServer *server, enum CmdIds id, std::vector<std::string>)) {
+    this->cmdHandlers[id] = handler;
+}
+
+void
+TCPServer::parse_cmd(std::string cmd)
+{
+    if (cmd == "print") {
+        std::cout << "parsed cmd: " << cmd << std::endl;
+        std::vector<std::string> data;
+        this->cmdHandlers[PRINT_CONNS](this, PRINT_CONNS, data);
     }
 }
 
-/**
- * task for stdin_command_reader thread. reads stdin input and exceutes command parser.
- *
- * @param v reference to TCPServer instance.
- */
-void *
-stdin_command_read(void* v)
-{
-    TCPServer *server = ((TCPServer *) v);
-    assert (server != NULL);
+void
+TCPServer::print_connections(TCPServer *server, enum CmdIds id, std::vector<std::string> params) {
+    std::map<int, pthread_t>::iterator it;
+    std::map<int, pthread_t> conns = server->get_conns();
 
-    while (server->server_mode == CLOSING) {
-        std::string line;
-
-        std::getline(std::cin, line);
-        std::cout << line << std::endl;
+    for (it = conns.begin(); it != conns.end(); it++) {
+        std::cout << it->first << std::endl;
     }
 }
 
@@ -96,7 +94,7 @@ collect(void * v) {
 
     while (1) {
         // wait for next thread to join
-        threads_to_join.P();
+        server->threads_to_join.P();
 
         // ask join_requested queue for last closed connection
         int conn = server->next_to_join();
@@ -105,7 +103,7 @@ collect(void * v) {
             // select examines all file descriptors sets whose addresses are passed
             // in the readfds; while select works with file descriptor set for conn
             // don´t close con!
-            access_connections.P();
+            server->access_connections.P();
             pthread_t *thread = server->find_thread(conn);
 
             if (pthread_join(*thread, 0)) {
@@ -116,8 +114,8 @@ collect(void * v) {
 
             server->erase_conn(conn);
             close(conn);
-            access_connections.V();
-            
+            server->access_connections.V();
+
             if (server->server_mode == STOPPING) {
                 // your job is done when all connections are closed..
                 if (server->get_num_open_conns() == 0) {
@@ -125,7 +123,7 @@ collect(void * v) {
                 }
             }
         } else {
-            // special case: no connection during running time..
+            // no open connections after server status set to STOPPING
             break;
         }
     }
@@ -137,13 +135,6 @@ collect(void * v) {
 TCPServer::~TCPServer()
 {
     this->server_mode = CLOSING;
-
-    if (this->stdin_command_reader != NULL && this->stdin_command_reader > 0 && pthread_join(this->stdin_command_reader, 0))
-    {
-        perror("Failed to join thread");
-    } else {
-        std::cout << "joined stdin_command_reader thread" << std::endl;
-    }
 
     if (this->sd >= 0) {
         close(this->sd);
@@ -219,14 +210,15 @@ TCPServer::stop() {
     std::cout << "stop: a).." << std::endl;
 
     // necessary so blocked listener can move in to join queue
-    select_client.V();
+    this->select_client.V();
 
     std::cout << "stop: b).." << std::endl;
     // this->close_conns();
-    
-    // special case: not connection during runnning time
+
+    // no open connections after server status set to STOPPING
+    // wake up colletor thread to join
     if (this->connections.size() == 0) {
-        threads_to_join.V();
+        this->threads_to_join.V();
     }
 
     // join colector thread
@@ -259,6 +251,7 @@ accept_conn(void * v) {
 
     int ret;
     int max_sd;
+    int sfd;
 
     while(server->server_mode != STOPPING) {
         // clear socket set
@@ -266,6 +259,11 @@ accept_conn(void * v) {
 
         FD_SET(server->sd,&server->read_flags);
         max_sd = server->sd;
+        
+        // reading from STDIN
+        FD_SET(STDIN_FILENO, &server->read_flags);
+        max_sd++;
+        sfd = max_sd;
 
         /*
         FD_ZERO(&server->write_flags);
@@ -275,7 +273,7 @@ accept_conn(void * v) {
         FD_SET(STDIN_FILENO, &server->write_flags);
         */
 
-        access_connections.P();
+        server->access_connections.P();
         std::map<int, pthread_t>::iterator it = server->connections.begin();
         while (it != server->connections.end()) {
             int conn = it->first;
@@ -290,7 +288,7 @@ accept_conn(void * v) {
 
             it++;
         }
-        access_connections.V();
+        server->access_connections.V();
 
         // 10 milliseconds using timeval for select
         struct timeval waitd;
@@ -344,8 +342,11 @@ accept_conn(void * v) {
                 }
                 std::cout << "finished sending connection established.." << std::endl;
             }
+        } else if (FD_ISSET(STDIN_FILENO, &server->read_flags)) {
+            // std::cout << "you typed: " << sfd << std::endl;
+            // start thread for working with input data
         } else {
-            select_client.V();
+            server->select_client.V();
         }
     }
 }
@@ -357,11 +358,11 @@ listener(void *v) {
     std::cout << "listener attached to conn " << conn << std::endl;
 
     while(1) {
-        select_client.P();
+        context->first->select_client.P();
 
         if (context->first->server_mode == STOPPING) {
             // free sema so other listener can join, too..
-            select_client.V();
+            context->first->select_client.V();
 
             // send BYE
             std::cout << "send bye" << std::endl;
@@ -373,8 +374,8 @@ listener(void *v) {
 
             // register in join queue
             context->first->register_join_reqeust(conn);
-            threads_to_join.V();
-            
+            context->first->threads_to_join.V();
+
             delete context;
             break;
         }
@@ -391,7 +392,7 @@ listener(void *v) {
                 printf("Host disconnected , ip %s , port %d \n" , inet_ntoa(context->first->addr.sin_addr) , ntohs(context->first->addr.sin_port));
 
                 context->first->register_join_reqeust(conn);
-                threads_to_join.V();
+                context->first->threads_to_join.V();
 
                 delete context;
                 break;
@@ -408,7 +409,7 @@ listener(void *v) {
                 std::cout << "finished sending ack" << std::endl;
             }
         } else {
-            select_client.V();
+            context->first->select_client.V();
         }
     }
 
@@ -461,5 +462,7 @@ TCPServer::erase_conn(int conn) {
 
 std::map<int, pthread_t>
 TCPServer::get_conns() {
+    this->access_connections.P();
     return this->connections;
+    this->access_connections.V();
 }

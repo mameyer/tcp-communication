@@ -1,15 +1,11 @@
 #include "TCPClient.hpp"
 #include "../common/common.hpp"
-#include "../common/Sema.hh"
 
 #include <assert.h>
 #include <unistd.h>
 #include <pthread.h>
 
-bool running = true;
-Sema access_read_mode(1);
-
-TCPClient::TCPClient(std::string address, int port) : server_address(address), destination_port(port), sock(-1) {
+TCPClient::TCPClient(std::string address, int port) : access_read_mode(1) ,server_address(address), destination_port(port), sock(-1) {
     this->read_mode = INCOME;
     this->sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -23,6 +19,7 @@ TCPClient::TCPClient(std::string address, int port) : server_address(address), d
     std::cout << "socket created: " << this->sock << std::endl;
 
     this->conn();
+    this->running = true;
 
     if(pthread_create(&this->receive, 0, receiver, (void *)this))
     {
@@ -32,7 +29,7 @@ TCPClient::TCPClient(std::string address, int port) : server_address(address), d
 
 TCPClient::~TCPClient()
 {
-    running = false;
+    this->running = false;
 
     if (this->sock >= 0) {
         close(this->sock);
@@ -99,7 +96,7 @@ void
 TCPClient::send_data(std::string data) {
     assert (data.size() > 0);
     assert (this->sock >= 0);
-    assert (running);
+    assert (this->running);
 
     int allBytesSent = 0;
     int actBytesSent = 0;
@@ -110,7 +107,7 @@ TCPClient::send_data(std::string data) {
         if (actBytesSent < 0) {
             perror("send failed!\n");
             close(this->sock);
-            running = false;
+            this->running = false;
             return;
         }
 
@@ -127,9 +124,9 @@ void flush_receive_buffer() {
 void
 TCPClient::set_read_mode(read_modes mode)
 {
-    access_read_mode.P();
+    this->access_read_mode.P();
     this->read_mode = mode;
-    access_read_mode.V();
+    this->access_read_mode.V();
 }
 
 read_modes
@@ -137,9 +134,9 @@ TCPClient::get_read_mode()
 {
     read_modes act_read_mode;
     
-    access_read_mode.P();
+    this->access_read_mode.P();
     act_read_mode = this->read_mode;
-    access_read_mode.V();
+    this->access_read_mode.V();
     
     return act_read_mode;
 }
@@ -162,7 +159,7 @@ receiver(void * v) {
     assert(client != NULL);
     assert (client->get_sock() >= 0);
 
-    while (running) {
+    while (client->running) {
         char buffer[RECEIVE_BUFFER_SIZE];
         int allBytesRead = 0;
         int actBytesRead = 0;
@@ -184,7 +181,7 @@ receiver(void * v) {
                 }
 
                 client->close_conn();
-                running = false;
+                client->running = false;
                 return 0;
             }
 

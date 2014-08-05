@@ -11,6 +11,8 @@
 #include<netdb.h> //hostent
 #include <unistd.h>
 
+#include "../common/Sema.hh"
+
 #define RECEIVE_BUFFER_SIZE 1024
 
 void *receiver(void * v);
@@ -30,6 +32,8 @@ private:
     void conn();
     read_modes read_mode;
 public:
+    bool running;
+    Sema access_read_mode;
     TCPClient(std::string address, int port);
     ~TCPClient();
     void send_data(std::string data);

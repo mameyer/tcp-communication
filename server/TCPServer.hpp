@@ -1,6 +1,8 @@
 #ifndef TCPSERVER_HPP__
 #define TCPSERVER_HPP__
 
+#include "../common/Sema.hh"
+
 #include <string>
 #include <vector>
 #include <map>
@@ -15,7 +17,6 @@
 void *collect(void * v);
 void *listener(void *v);
 void *accept_conn(void * v);
-void *stdin_command_read(void *v);
 
 enum ServerMode {
     STARTING,   // create socket, bind socket, create thread for reading stdin input
@@ -23,6 +24,11 @@ enum ServerMode {
                 // accept and handle conns (creating runner thread) -> then: set state to RUNNING
     STOPPING,   // initiate stopping runner and collector thread
     CLOSING     // 
+};
+
+enum CmdIds {
+    PRINT_CONNS,
+    NUM_IDS
 };
 
 class TCPServer
@@ -33,6 +39,12 @@ private:
     pthread_t stdin_command_reader;
     std::queue<int> join_requested;
 public:
+    Sema threads_to_join;
+    Sema access_connections;
+    Sema select_client;
+    
+    void (*cmdHandlers[NUM_IDS])(TCPServer *server, enum CmdIds id, std::vector<std::string>);
+
     ServerMode server_mode;
     int sd;
     struct sockaddr_in addr;
@@ -57,6 +69,9 @@ public:
     int get_sd();
     
     void register_join_reqeust(int conn);
+    void parse_cmd(std::string cmd);
+    void register_cmd_handler(enum CmdIds id, void (*handler)(TCPServer *server, enum CmdIds id, std::vector<std::string>));
+    static void print_connections(TCPServer *server, enum CmdIds id, std::vector<std::string> params);
 };
 
 TCPServer tcpServer();
