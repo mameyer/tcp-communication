@@ -16,6 +16,12 @@ TCPClient::TCPClient(std::string address, int port) : access_read_mode(1) ,serve
     }
 
     // set_nonblock(this->sock);
+    
+    struct timeval tv;
+    tv.tv_sec = 1;  /* 30 Secs Timeout */
+    tv.tv_usec = 0;  // Not init'ing this can cause strange errors
+    setsockopt(this->sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,sizeof(struct timeval));
+    
     std::cout << "socket created: " << this->sock << std::endl;
 
     this->conn();
@@ -35,6 +41,7 @@ TCPClient::~TCPClient()
         close(this->sock);
     }
 
+    std::cout << "joining receiver thread.." << std::endl;
     if (this->receive != NULL && this->receive > 0 && pthread_join(this->receive, 0))
     {
         perror("Failed to join thread");
@@ -160,6 +167,10 @@ receiver(void * v) {
     assert (client->get_sock() >= 0);
 
     while (client->running) {
+        if (!client->running) {
+            break;
+        }
+        
         char buffer[RECEIVE_BUFFER_SIZE];
         int allBytesRead = 0;
         int actBytesRead = 0;

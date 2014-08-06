@@ -48,18 +48,23 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int)) < 0) {
         perror("setsockopt");
     }
-    
+
+    struct timeval tv;
+    tv.tv_sec = 1;  /* 30 Secs Timeout */
+    tv.tv_usec = 0;  // Not init'ing this can cause strange errors
+    setsockopt(this->sd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,sizeof(struct timeval));
+
     this->available_commands["print conns"] = PRINT_CONNS;
     this->available_commands["help"] = HELP;
-    
+
     this->register_cmd_handler(UNKNOWN, this->cmd_show_help);
     this->register_cmd_handler(PRINT_CONNS, this->cmd_print_connections);
     this->register_cmd_handler(HELP, this->cmd_show_help);
-    
+
     if (pthread_create(&this->runner, 0, accept_conn, (void *)this)) {
         perror("Failed to create thread");
     }
-    
+
     if (pthread_create(&this->stdin_command_reader, 0, execute_cmd, (void *)this)) {
         perror("Failed to create thread");
     }
@@ -75,17 +80,17 @@ execute_cmd(void* v)
 {
     TCPServer *server = (TCPServer *) v;
     assert(server != NULL);
-    
+
     while (server->server_mode != CLOSING) {
         server->cmds_to_execute.P();
-        
+
         if (server->server_mode == CLOSING) {
             std::cout << "break execute_cmd" << std::endl;
             break;
         }
-        
+
         CmdIds cmd_id = server->next_cmd_to_execute();
-        
+
         if (cmd_id != CMD_UNAVAIL) {
             server->cmdHandlers[cmd_id](server);
         }
@@ -97,7 +102,7 @@ TCPServer::parse_cmd(std::string cmd)
 {
     if (!cmd.empty()) {
         CmdIds cmd_id = this->available_commands[cmd];
-        
+
         if (cmd_id != NULL) {
             this->cmds_requested.push(cmd_id);
         }
@@ -110,7 +115,7 @@ void
 TCPServer::cmd_print_connections(void *params) {
     TCPServer *server = (TCPServer *) params;
     assert(server != NULL);
-    
+
     std::map<int, pthread_t>::iterator it;
     std::map<int, pthread_t> conns = server->get_conns();
 
@@ -123,9 +128,9 @@ void
 TCPServer::cmd_show_help(void *params) {
     TCPServer *server = (TCPServer *) params;
     assert(server != NULL);
-    
+
     std::cout << "available commands:" << std::endl;
-    
+
     std::map<std::string, enum CmdIds>::iterator it;
     for (it = server->available_commands.begin(); it != server->available_commands.end(); it++) {
         std::cout << it->first << std::endl;
@@ -149,6 +154,7 @@ collect(void * v) {
 
     while (1) {
         // wait for next thread to join
+        std::cout << "wait for next thread to join.." << std::endl;
         server->threads_to_join.P();
 
         // ask join_requested queue for last closed connection
@@ -192,20 +198,20 @@ collect(void * v) {
 TCPServer::~TCPServer()
 {
     this->server_mode = CLOSING;
-    
+
     // join cmd reader
     // wake up thread
     if (this->cmds_requested.empty()) {
         this->cmds_to_execute.V();
     }
-    
+
     if (this->stdin_command_reader != NULL && this->stdin_command_reader > 0 && pthread_join(this->stdin_command_reader, 0))
     {
         perror("Failed to join thread");
     } else {
         std::cout << "joined stdin_command_reader.." << std::endl;
     }
-    
+
     // join runner thread
     if (this->runner != NULL && this->runner > 0 && pthread_join(this->runner, 0))
     {
@@ -216,9 +222,23 @@ TCPServer::~TCPServer()
 
     if (this->sd >= 0) {
         int sd_old = this->sd;
-        close(this->sd);
-        std::cout << "closed socket: " << sd_old << std::endl;
+
+        int try_close = 10;
+        int res_close = -1;
+        while (((res_close = close(this->sd)) < 0) && (try_close >= 0)) {
+            perror("socket cannot be closed jet");
+            usleep(10000);
+            try_close--;
+        }
+
+        if ((try_close < 0) && (res_close < 0)) {
+            std::cout << "could not close socket" << std::endl;
+        } else {
+            std::cout << "closed socket: " << sd_old << std::endl;
+        }
     }
+
+    std::cout << "num open conns: " << this->connections.size() << std::endl;
 }
 
 /**
@@ -298,6 +318,7 @@ TCPServer::stop() {
     }
 
     // join colector thread
+    std::cout << "start joining collector.." << std::endl;
     if (this->collector != NULL && this->collector > 0 && pthread_join(this->collector, 0))
     {
         perror("Failed to join thread");
@@ -325,7 +346,7 @@ accept_conn(void * v) {
 
         FD_SET(server->sd,&server->read_flags);
         max_sd = server->sd;
-        
+
         // reading from STDIN
         FD_SET(STDIN_FILENO, &server->read_flags);
         max_sd++;
@@ -445,6 +466,7 @@ listener(void *v) {
 
         if (FD_ISSET(conn, &context->first->read_flags)) {
             char read_buffer[READ_BUFFER_SIZE];
+            std::cout << "receiving.." << std::endl;
             int numRead = recv(conn, read_buffer, READ_BUFFER_SIZE, 0);
 
             if(numRead < 0) {
@@ -538,8 +560,8 @@ TCPServer::erase_conn(int conn) {
 std::map<int, pthread_t>
 TCPServer::get_conns() {
     while (!this->connections_to_userspace) {
-        
+
     }
-    
+
     return this->connections;
 }
