@@ -23,7 +23,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), sd(-1) {
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (this->sd < 0)
@@ -49,34 +49,85 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
         perror("setsockopt");
     }
     
-    this->register_cmd_handler(PRINT_CONNS, this->print_connections);
+    this->available_commands["print conns"] = PRINT_CONNS;
+    this->available_commands["help"] = HELP;
+    
+    this->register_cmd_handler(UNKNOWN, this->cmd_show_help);
+    this->register_cmd_handler(PRINT_CONNS, this->cmd_print_connections);
+    this->register_cmd_handler(HELP, this->cmd_show_help);
     
     if (pthread_create(&this->runner, 0, accept_conn, (void *)this)) {
+        perror("Failed to create thread");
+    }
+    
+    if (pthread_create(&this->stdin_command_reader, 0, execute_cmd, (void *)this)) {
         perror("Failed to create thread");
     }
 }
 
 void
-TCPServer::register_cmd_handler(enum CmdIds id, void (*handler)(TCPServer *server, enum CmdIds id, std::vector<std::string>)) {
+TCPServer::register_cmd_handler(enum CmdIds id, void (*handler)(void *params)) {
     this->cmdHandlers[id] = handler;
+}
+
+void *
+execute_cmd(void* v)
+{
+    TCPServer *server = (TCPServer *) v;
+    assert(server != NULL);
+    
+    while (server->server_mode != CLOSING) {
+        server->cmds_to_execute.P();
+        
+        if (server->server_mode == CLOSING) {
+            std::cout << "break execute_cmd" << std::endl;
+            break;
+        }
+        
+        CmdIds cmd_id = server->next_cmd_to_execute();
+        
+        if (cmd_id != CMD_UNAVAIL) {
+            server->cmdHandlers[cmd_id](server);
+        }
+    }
 }
 
 void
 TCPServer::parse_cmd(std::string cmd)
 {
-    if (cmd == "print") {
-        std::cout << "parsed cmd: " << cmd << std::endl;
-        std::vector<std::string> data;
-        this->cmdHandlers[PRINT_CONNS](this, PRINT_CONNS, data);
+    if (!cmd.empty()) {
+        CmdIds cmd_id = this->available_commands[cmd];
+        
+        if (cmd_id != NULL) {
+            this->cmds_requested.push(cmd_id);
+        }
+    } else {
+        this->cmds_requested.push(HELP);
     }
 }
 
 void
-TCPServer::print_connections(TCPServer *server, enum CmdIds id, std::vector<std::string> params) {
+TCPServer::cmd_print_connections(void *params) {
+    TCPServer *server = (TCPServer *) params;
+    assert(server != NULL);
+    
     std::map<int, pthread_t>::iterator it;
     std::map<int, pthread_t> conns = server->get_conns();
 
     for (it = conns.begin(); it != conns.end(); it++) {
+        std::cout << it->first << std::endl;
+    }
+}
+
+void
+TCPServer::cmd_show_help(void *params) {
+    TCPServer *server = (TCPServer *) params;
+    assert(server != NULL);
+    
+    std::cout << "available commands:" << std::endl;
+    
+    std::map<std::string, enum CmdIds>::iterator it;
+    for (it = server->available_commands.begin(); it != server->available_commands.end(); it++) {
         std::cout << it->first << std::endl;
     }
 }
@@ -142,6 +193,19 @@ TCPServer::~TCPServer()
 {
     this->server_mode = CLOSING;
     
+    // join cmd reader
+    // wake up thread
+    if (this->cmds_requested.empty()) {
+        this->cmds_to_execute.V();
+    }
+    
+    if (this->stdin_command_reader != NULL && this->stdin_command_reader > 0 && pthread_join(this->stdin_command_reader, 0))
+    {
+        perror("Failed to join thread");
+    } else {
+        std::cout << "joined stdin_command_reader.." << std::endl;
+    }
+    
     // join runner thread
     if (this->runner != NULL && this->runner > 0 && pthread_join(this->runner, 0))
     {
@@ -151,7 +215,9 @@ TCPServer::~TCPServer()
     }
 
     if (this->sd >= 0) {
+        int sd_old = this->sd;
         close(this->sd);
+        std::cout << "closed socket: " << sd_old << std::endl;
     }
 }
 
@@ -265,14 +331,6 @@ accept_conn(void * v) {
         max_sd++;
         sfd = max_sd;
 
-        /*
-        FD_ZERO(&server->write_flags);
-        FD_SET(server->sd,&server->write_flags);
-
-        FD_SET(STDIN_FILENO, &server->read_flags);
-        FD_SET(STDIN_FILENO, &server->write_flags);
-        */
-
         server->access_connections.P();
         std::map<int, pthread_t>::iterator it = server->connections.begin();
         while (it != server->connections.end()) {
@@ -294,7 +352,6 @@ accept_conn(void * v) {
         struct timeval waitd;
         waitd.tv_sec = 0;
         waitd.tv_usec = 10000;
-        //ret = select(max_sd + 1, &server->read_flags, &server->write_flags, (fd_set*)0, &waitd);
 
         ret = select(max_sd + 1, &server->read_flags, &server->write_flags, (fd_set*)0, &waitd);
         if (server->server_mode == CLOSING) {
@@ -346,9 +403,11 @@ accept_conn(void * v) {
             // std::cout << "you typed: " << sfd << std::endl;
             // start thread for working with input data
             std::string line;
+            std::cout << "getl read from stdin: " << line << std::endl;
             std::getline(std::cin, line);
             std::cout << "read from stdin: " << line << std::endl;
             server->parse_cmd(line);
+            server->cmds_to_execute.V();
         } else {
             server->select_client.V();
         }
@@ -429,6 +488,18 @@ void
 TCPServer::register_join_reqeust(int conn) {
     this->join_requested.push(conn);
     std::cout << "register thread with conn " << conn << std::endl;
+}
+
+CmdIds
+TCPServer::next_cmd_to_execute() {
+    if (this->cmds_requested.empty()) {
+        return CMD_UNAVAIL;
+    }
+
+    CmdIds cmd_id = this->cmds_requested.front();
+    this->cmds_requested.pop();
+
+    return cmd_id;
 }
 
 int

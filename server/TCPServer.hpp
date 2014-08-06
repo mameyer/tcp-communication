@@ -17,6 +17,7 @@
 void *collect(void * v);
 void *listener(void *v);
 void *accept_conn(void * v);
+void *execute_cmd(void * v);
 
 enum ServerMode {
     STARTING,   // create socket, bind socket, create thread for reading stdin input
@@ -27,7 +28,10 @@ enum ServerMode {
 };
 
 enum CmdIds {
+    CMD_UNAVAIL,
+    UNKNOWN,
     PRINT_CONNS,
+    HELP,
     NUM_IDS
 };
 
@@ -37,14 +41,19 @@ private:
     pthread_t collector;
     pthread_t runner;
     pthread_t stdin_command_reader;
+    
     std::queue<int> join_requested;
+    std::map<std::string, CmdIds> available_commands;
 public:
     Sema threads_to_join;
     Sema access_connections;
     Sema select_client;
+    Sema cmds_to_execute;
     bool connections_to_userspace;
     
-    void (*cmdHandlers[NUM_IDS])(TCPServer *server, enum CmdIds id, std::vector<std::string>);
+    std::queue<CmdIds> cmds_requested;
+    
+    void (*cmdHandlers[NUM_IDS])(void *params);
 
     ServerMode server_mode;
     int sd;
@@ -68,11 +77,14 @@ public:
     pthread_t * find_thread(int conn);
     int next_to_join();
     int get_sd();
+    CmdIds next_cmd_to_execute();
     
     void register_join_reqeust(int conn);
     void parse_cmd(std::string cmd);
-    void register_cmd_handler(enum CmdIds id, void (*handler)(TCPServer *server, enum CmdIds id, std::vector<std::string>));
-    static void print_connections(TCPServer *server, enum CmdIds id, std::vector<std::string> params);
+    void register_cmd_handler(enum CmdIds id, void (*handler)(void *params));
+    
+    static void cmd_print_connections(void *params);
+    static void cmd_show_help(void *params);
 };
 
 TCPServer tcpServer();

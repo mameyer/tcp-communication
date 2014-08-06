@@ -17,7 +17,7 @@ int main() {
     std::cout << "************** TCP SERVER **************" << std::endl;
     std::cout << "****************************************" << std::endl;
 
-    TCPServer *server = new TCPServer("localhost", 7190);
+    TCPServer *server = new TCPServer("localhost", 7197);
     server->run(NUM_CONNS);
     std::cout << "server started.." << std::endl;
     std::cout << std::endl;
