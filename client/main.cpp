@@ -13,7 +13,7 @@ int main() {
     std::cout << "************** TCP CLIENT **************" << std::endl;
     std::cout << "****************************************" << std::endl;
 
-    TCPClient *client = new TCPClient("127.0.0.1", 7187);
+    TCPClient *client = new TCPClient("127.0.0.1", 7190);
     //TCPClient *client = new TCPClient("x02.informatik.uni-bremen.de", 7160);
     //TCPClient *client = new TCPClient("www.heise.de", 80);
     //client->send_data("Test\n");

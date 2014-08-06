@@ -42,6 +42,7 @@ public:
     Sema threads_to_join;
     Sema access_connections;
     Sema select_client;
+    bool connections_to_userspace;
     
     void (*cmdHandlers[NUM_IDS])(TCPServer *server, enum CmdIds id, std::vector<std::string>);
 

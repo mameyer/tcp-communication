@@ -23,7 +23,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), sd(-1) {
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (this->sd < 0)
@@ -50,6 +50,10 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     }
     
     this->register_cmd_handler(PRINT_CONNS, this->print_connections);
+    
+    if (pthread_create(&this->runner, 0, accept_conn, (void *)this)) {
+        perror("Failed to create thread");
+    }
 }
 
 void
@@ -103,7 +107,6 @@ collect(void * v) {
             // select examines all file descriptors sets whose addresses are passed
             // in the readfds; while select works with file descriptor set for conn
             // don´t close con!
-            server->access_connections.P();
             pthread_t *thread = server->find_thread(conn);
 
             if (pthread_join(*thread, 0)) {
@@ -112,9 +115,12 @@ collect(void * v) {
                 std::cout << "joined thread " << conn << std::endl;
             }
 
+            server->access_connections.P();
+            server->connections_to_userspace = false;
             server->erase_conn(conn);
-            close(conn);
+            server->connections_to_userspace = true;
             server->access_connections.V();
+            close(conn);
 
             if (server->server_mode == STOPPING) {
                 // your job is done when all connections are closed..
@@ -135,6 +141,14 @@ collect(void * v) {
 TCPServer::~TCPServer()
 {
     this->server_mode = CLOSING;
+    
+    // join runner thread
+    if (this->runner != NULL && this->runner > 0 && pthread_join(this->runner, 0))
+    {
+        perror("Failed to join thread");
+    } else {
+        std::cout << "joined runner.." << std::endl;
+    }
 
     if (this->sd >= 0) {
         close(this->sd);
@@ -197,10 +211,6 @@ TCPServer::run(int num_conns) {
 
     init_listen(num_conns);
 
-    if (pthread_create(&this->runner, 0, accept_conn, (void *)this)) {
-        perror("Failed to create thread");
-    }
-
     this->server_mode = RUNNING;
 }
 
@@ -228,16 +238,6 @@ TCPServer::stop() {
     } else {
         std::cout << "joined collector.." << std::endl;
     }
-
-    std::cout << "stop: c).." << std::endl;
-
-    // join runner thread
-    if (this->runner != NULL && this->runner > 0 && pthread_join(this->runner, 0))
-    {
-        perror("Failed to join thread");
-    } else {
-        std::cout << "joined runner.." << std::endl;
-    }
 }
 
 void *
@@ -247,13 +247,13 @@ accept_conn(void * v) {
     assert (server != NULL);
     assert (server->sd != NULL);
     assert (server->sd >= 0);
-    assert (server->listen_active);
+    // assert (server->listen_active);
 
     int ret;
     int max_sd;
     int sfd;
 
-    while(server->server_mode != STOPPING) {
+    while(server->server_mode != CLOSING) {
         // clear socket set
         FD_ZERO(&server->read_flags);
 
@@ -297,7 +297,7 @@ accept_conn(void * v) {
         //ret = select(max_sd + 1, &server->read_flags, &server->write_flags, (fd_set*)0, &waitd);
 
         ret = select(max_sd + 1, &server->read_flags, &server->write_flags, (fd_set*)0, &waitd);
-        if (server->server_mode == STOPPING) {
+        if (server->server_mode == CLOSING) {
             std::cout << "select break.." << std::endl;
             break;
         }
@@ -305,7 +305,7 @@ accept_conn(void * v) {
         /* check result */
         if (ret < 0) {
             // perror("select");
-        } else if (FD_ISSET(server->sd, &server->read_flags)) {
+        } else if ((server->server_mode == RUNNING) && FD_ISSET(server->sd, &server->read_flags)) {
             /* accept connection and pass new socket to handler thread */
             int conn;
             sockaddr_storage addr;
@@ -345,6 +345,10 @@ accept_conn(void * v) {
         } else if (FD_ISSET(STDIN_FILENO, &server->read_flags)) {
             // std::cout << "you typed: " << sfd << std::endl;
             // start thread for working with input data
+            std::string line;
+            std::getline(std::cin, line);
+            std::cout << "read from stdin: " << line << std::endl;
+            server->parse_cmd(line);
         } else {
             server->select_client.V();
         }
@@ -462,7 +466,9 @@ TCPServer::erase_conn(int conn) {
 
 std::map<int, pthread_t>
 TCPServer::get_conns() {
-    this->access_connections.P();
+    while (!this->connections_to_userspace) {
+        
+    }
+    
     return this->connections;
-    this->access_connections.V();
 }
