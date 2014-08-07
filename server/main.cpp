@@ -19,9 +19,11 @@ int main() {
     std::cout << "************** TCP SERVER **************" << std::endl;
     std::cout << "****************************************" << std::endl;
     
+    Sema exit(0);
     TCPServer *server = new TCPServer("localhost", 7198);
+    server->set_exit_extern(&exit);
     
-    std::ostringstream ss;
+    /*std::ostringstream ss;
     ss << NUM_CONNS;
     std::string conns = ss.str();
     std::cout << "parsed num cons to " << conns << std::endl;
@@ -35,9 +37,10 @@ int main() {
 
     server->stop((void *) 0);
 
-    server->~TCPServer();
+    server->~TCPServer();*/
     
-    // while (true) sleep(1000);
+    exit.P();
+    server->~TCPServer();
     
     return EXIT_SUCCESS;
 }

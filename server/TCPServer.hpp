@@ -58,6 +58,8 @@ private:
     pthread_t collector;
     pthread_t runner;
     pthread_t stdin_command_reader;
+    
+    Sema *exit_extern;
 
     std::queue<int> join_requested;
     std::map<std::string, CmdIds> available_commands;
@@ -102,6 +104,8 @@ public:
     void cmd_print_connections(void *params);
     void cmd_show_help(void *params);
     void cmd_exit(void *params);
+    
+    void set_exit_extern(Sema *extern_exit);
 };
 
 #endif

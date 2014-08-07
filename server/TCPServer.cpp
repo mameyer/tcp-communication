@@ -75,18 +75,21 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     this->cmdHandlers[CMD_RUN] = &TCPServer::run;
     this->cmdHandlers[CMD_STOP] = &TCPServer::stop;
     this->cmdHandlers[CMD_EXIT] = &TCPServer::cmd_exit;
+    
+    std::cout << "server mode running is: " << RUNNING << std::endl;
+    std::cout << "sever mode stopping is: " << STOPPING << std::endl;
 
 
-    if (pthread_create(&this->runner, 0, accept_conn, (void *)this)) {
-        perror("!failed to create runner thread");
-    } else {
+    if (pthread_create(&this->runner, 0, accept_conn, (void *)this) == 0) {
         std::cout << "runner thread created.." << std::endl;
+    } else {
+        perror("!failed to create runner thread"); 
     }
 
-    if (pthread_create(&this->stdin_command_reader, 0, execute_cmd, (void *)this)) {
-        perror("!failed to create stdin_command_reader thread");
-    } else {
+    if (pthread_create(&this->stdin_command_reader, 0, execute_cmd, (void *)this) == 0) {
         std::cout << "stdin_command_reader thread created.." << std::endl;
+    } else {
+        perror("!failed to create stdin_command_reader thread");
     }
 
     std::cout << "server successfully started.." << std::endl;
@@ -185,8 +188,10 @@ TCPServer::cmd_exit(void *params) {
     if (this->server_mode == RUNNING) {
         this->stop((void *) 0);
     }
-    
-    this->~TCPServer();
+
+    if (this->exit_extern != NULL) {
+        this->exit_extern->V();
+    }
 }
 
 void
@@ -218,6 +223,13 @@ collect(void * v) {
         // wait for next thread to join
         server->threads_to_join.P();
 
+        if (server->server_mode == STOPPING) {
+            // your job is done when all connections are closed..
+            if (server->get_num_open_conns() == 0) {
+                break;
+            }
+        }
+
         // ask join_requested queue for last closed connection
         int conn = server->next_to_join();
 
@@ -229,7 +241,7 @@ collect(void * v) {
 
             std::cout << std::endl;
             if (pthread_join(*thread, 0) == 0) {
-                std::cout << "joined thread " << conn << std::endl;
+                std::cout << "joined client thread " << conn << std::endl;
             } else {
                 perror("Failed to join thread");
             }
@@ -251,14 +263,9 @@ collect(void * v) {
                     break;
                 }
             }
-        } else {
-            // no open connections after server status set to STOPPING
-            break;
         }
     }
 }
-
-
 
 /**
  * desctrutor for TCPServer. closes open connections and joins threads.
@@ -367,9 +374,9 @@ TCPServer::init_listen(int num_conns) {
 void
 TCPServer::run(void *params) {
     assert(params != NULL);
-    std::cout << this->server_mode << std::endl;
+    std::cout << "server mode: " << this->server_mode << std::endl;
 
-    if (!this->server_mode == RUNNING) {
+    if ((this->server_mode == STOPPING) || (this->server_mode == STARTING)) {
         Cmd *cmd = (Cmd *) params;
 
         int num_conns = -1;
@@ -397,10 +404,10 @@ TCPServer::run(void *params) {
 
         std::cout << std::endl;
         // create thread for joining listener threads (sperate thread for every connection)
-        if (pthread_create(&this->collector, 0, collect, (void *)this)) {
-            perror("failed to create collector thread");
-        } else {
+        if (pthread_create(&this->collector, 0, collect, (void *)this) == 0) {
             std::cout << "collector thread created.." << std::endl;
+        } else {
+            perror("failed to create collector thread");
         }
 
         init_listen(num_conns);
@@ -422,11 +429,18 @@ TCPServer::run(void *params) {
 }
 
 void
+TCPServer::set_exit_extern(Sema *extern_exit) {
+    this->exit_extern = extern_exit;
+}
+
+void
 TCPServer::stop(void *params) {
+    std::cout << "server mode: " << this->server_mode;
     if (this->server_mode == RUNNING) {
         std::cout << std::endl;
         std::cout << "stopping server.." << std::endl;
         this->server_mode = STOPPING;
+        std::cout << "server mode is now.." << this->server_mode << std::endl;
 
         // necessary so blocked listener can move in to join queue
         this->select_client.V();
@@ -528,28 +542,30 @@ accept_conn(void * v) {
             sockaddr_storage addr;
             socklen_t socklen = sizeof(addr);
 
+            std::cout << "my server mode is: " << server->server_mode << std::endl;
+            std::cout << "accept.." << std::endl;
             // conn = accept4(server->sd, (sockaddr*)&addr, &socklen, SOCK_NONBLOCK);
             conn = accept(server->sd, (sockaddr*)&addr, &socklen);
 
             if (conn < 0) {
                 perror("accept");
-            } else {
+            } else if (server->server_mode == RUNNING) {
                 // set non-blocking
                 // recv()/send() non blocking
                 // set_nonblock(conn);
 
                 server->connections[conn] = NULL;
                 std::cout << std::endl;
-                std::cout << "con: " << conn << std::endl;
 
                 std::pair<TCPServer*, int> *listenerContext = new std::pair<TCPServer*, int>();
                 listenerContext->first = server;
                 listenerContext->second = conn;
 
-                if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext))
+                if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext) == 0)
                 {
+                    std::cout << "create client thread for con .." << conn << std::endl;
+                } else {
                     perror("Failed to create thread");
-                    std::cout << conn << std::endl;
                 }
 
                 // send connection established to new client..

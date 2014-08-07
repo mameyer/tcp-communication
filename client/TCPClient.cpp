@@ -27,8 +27,10 @@ TCPClient::TCPClient(std::string address, int port) : access_read_mode(1) ,serve
     this->conn();
     this->running = true;
 
-    if(pthread_create(&this->receive, 0, receiver, (void *)this))
+    if(pthread_create(&this->receive, 0, receiver, (void *)this) == 0)
     {
+        std::cout << "created receiver thread" << std::endl;
+    } else {
         perror("Failed to create thread");
     }
 }
