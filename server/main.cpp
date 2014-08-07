@@ -37,7 +37,7 @@ int main() {
 
     server->~TCPServer();
     
-    while (true) sleep(1000);
+    // while (true) sleep(1000);
     
     return EXIT_SUCCESS;
 }
