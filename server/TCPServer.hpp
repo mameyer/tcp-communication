@@ -22,17 +22,34 @@ void *execute_cmd(void * v);
 enum ServerMode {
     STARTING,   // create socket, bind socket, create thread for reading stdin input
     RUNNING,    // before this state: create thread for collecting listener threads,
-                // accept and handle conns (creating runner thread) -> then: set state to RUNNING
+    // accept and handle conns (creating runner thread) -> then: set state to RUNNING
     STOPPING,   // initiate stopping runner and collector thread
-    CLOSING     // 
+    CLOSING     //
 };
 
 enum CmdIds {
     CMD_UNAVAIL,
-    UNKNOWN,
-    PRINT_CONNS,
-    HELP,
-    NUM_IDS
+    CMD_UNKNOWN,
+    CMD_PRINT_CONNS,
+    CMD_HELP,
+    CMD_STOP,
+    CMD_RUN,
+    CMD_EXIT,
+    CMD_NUM_IDS
+};
+
+class Cmd {
+public:
+    CmdIds id;
+    std::vector<std::string> params;
+    Cmd(CmdIds id, std::vector<std::string> params) {
+        this->id=id;
+        this->params=params;
+    }
+    
+    Cmd(CmdIds id) {
+        this->id=id;
+    }
 };
 
 class TCPServer
@@ -41,7 +58,7 @@ private:
     pthread_t collector;
     pthread_t runner;
     pthread_t stdin_command_reader;
-    
+
     std::queue<int> join_requested;
     std::map<std::string, CmdIds> available_commands;
 public:
@@ -50,10 +67,10 @@ public:
     Sema select_client;
     Sema cmds_to_execute;
     bool connections_to_userspace;
-    
-    std::queue<CmdIds> cmds_requested;
-    
-    void (*cmdHandlers[NUM_IDS])(void *params);
+
+    std::queue<Cmd *> cmds_requested;
+
+    void (TCPServer::*cmdHandlers[CMD_NUM_IDS])(void *params);
 
     ServerMode server_mode;
     int sd;
@@ -62,31 +79,29 @@ public:
     bool listen_active;
     std::map<int, pthread_t> connections;
     fd_set read_flags,write_flags;
-    
+
     TCPServer(std::string addr, int port);
     ~TCPServer();
-    
-    void run(int num_conns);
+
+    void run(void *params);
     void init_listen(int num_conns);
-    void stop();
+    void stop(void *params);
     bool erase_conn(int conn);
     void close_conns();
-    
+
     std::map<int, pthread_t> get_conns();
     int get_num_open_conns();
     pthread_t * find_thread(int conn);
     int next_to_join();
     int get_sd();
-    CmdIds next_cmd_to_execute();
-    
+    Cmd * next_cmd_to_execute();
+
     void register_join_reqeust(int conn);
     void parse_cmd(std::string cmd);
-    void register_cmd_handler(enum CmdIds id, void (*handler)(void *params));
-    
-    static void cmd_print_connections(void *params);
-    static void cmd_show_help(void *params);
-};
 
-TCPServer tcpServer();
+    void cmd_print_connections(void *params);
+    void cmd_show_help(void *params);
+    void cmd_exit(void *params);
+};
 
 #endif

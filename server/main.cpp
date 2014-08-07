@@ -8,6 +8,8 @@ extern "C"
 #include <cstdlib>
 #include <iostream>
 #include <unistd.h>
+#include <string>
+#include <sstream>
 
 #define NUM_CONNS 10
 #define RUN_TIME 30
@@ -16,24 +18,26 @@ int main() {
     std::cout << "****************************************" << std::endl;
     std::cout << "************** TCP SERVER **************" << std::endl;
     std::cout << "****************************************" << std::endl;
-
+    
     TCPServer *server = new TCPServer("localhost", 7198);
-    server->run(NUM_CONNS);
-    std::cout << "server started.." << std::endl;
+    
+    std::ostringstream ss;
+    ss << NUM_CONNS;
+    std::string conns = ss.str();
+    std::cout << "parsed num cons to " << conns << std::endl;
     std::cout << std::endl;
+    
+    std::vector<std::string> params;
+    params.push_back(conns);
+    server->run(new Cmd(CMD_RUN, params));
 
     sleep(RUN_TIME);
 
-    server->stop();
-
-    std::cout << std::endl;
-    std::cout << "server stopped.." << std::endl;
-
-    std::cout << std::endl;
-    std::cout << "open connections:" << std::endl;
-
-    std::cout << "num open conns: " << server->get_num_open_conns() << std::endl;
+    server->stop((void *) 0);
 
     server->~TCPServer();
+    
+    while (true) sleep(1000);
+    
     return EXIT_SUCCESS;
 }
