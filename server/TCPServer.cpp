@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -68,6 +68,8 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     this->available_commands["stop"] = CMD_STOP;
     this->available_commands["run"] = CMD_RUN;
     this->available_commands["exit"] = CMD_EXIT;
+    this->available_commands["prtincome"] = CMD_PRINT_INCOME;
+    this->available_commands["clrincome"] = CMD_CLR_INCOME;
 
     this->cmdHandlers[CMD_UNKNOWN] = &TCPServer::cmd_show_help;
     this->cmdHandlers[CMD_PRINT_CONNS] = &TCPServer::cmd_print_connections;
@@ -75,6 +77,8 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     this->cmdHandlers[CMD_RUN] = &TCPServer::run;
     this->cmdHandlers[CMD_STOP] = &TCPServer::stop;
     this->cmdHandlers[CMD_EXIT] = &TCPServer::cmd_exit;
+    this->cmdHandlers[CMD_PRINT_INCOME] = &TCPServer::print_income;
+    this->cmdHandlers[CMD_CLR_INCOME] = &TCPServer::clr_income;
     
     std::cout << "server mode running is: " << RUNNING << std::endl;
     std::cout << "sever mode stopping is: " << STOPPING << std::endl;
@@ -137,7 +141,7 @@ TCPServer::parse_cmd(std::string cmd)
 
         std::vector<std::string> params;
         for (std::string token; iss >> token;) {
-            std::cout << token << std::endl;
+            // std::cout << token << std::endl;
             params.push_back(token);
         }
 
@@ -374,7 +378,7 @@ TCPServer::init_listen(int num_conns) {
 void
 TCPServer::run(void *params) {
     assert(params != NULL);
-    std::cout << "server mode: " << this->server_mode << std::endl;
+    // std::cout << "server mode: " << this->server_mode << std::endl;
 
     if ((this->server_mode == STOPPING) || (this->server_mode == STARTING)) {
         Cmd *cmd = (Cmd *) params;
@@ -402,7 +406,6 @@ TCPServer::run(void *params) {
             return;
         }
 
-        std::cout << std::endl;
         // create thread for joining listener threads (sperate thread for every connection)
         if (pthread_create(&this->collector, 0, collect, (void *)this) == 0) {
             std::cout << "collector thread created.." << std::endl;
@@ -412,25 +415,48 @@ TCPServer::run(void *params) {
 
         init_listen(num_conns);
 
-        // signal user that server is ready to read cmd
-        std::cout << "[server] > ";
-        std::cout.flush();
-
         this->server_mode = RUNNING;
     } else {
         std::cout << std::endl;
-
         std::cout << "server allready running.." << std::endl;
-
-        // signal user that server is ready to read cmd
-        std::cout << "[server] > ";
-        std::cout.flush();
     }
 }
 
 void
 TCPServer::set_exit_extern(Sema *extern_exit) {
     this->exit_extern = extern_exit;
+}
+
+void
+TCPServer::print_income(void *params) {
+    this->access_income.P();
+    if (this->income.size() > 0) {
+        std::map<int, std::vector<std::string>*> inc = this->income;
+        this->access_income.V();
+        std::map<int, std::vector<std::string>*>::iterator it;
+        
+        for (it = inc.begin(); it != inc.end(); it++) {
+            if (it->second != NULL) {
+                std::vector<std::string> in = *it->second;
+                std::vector<std::string>::iterator iter; 
+                
+                for (iter = in.begin(); iter != in.end(); iter++) {
+                    std::cout << *iter << std::endl;
+                }
+            }
+        }
+    } else {
+        this->access_income.V();
+    }
+}
+
+void
+TCPServer::clr_income(void *params) {
+    this->access_income.P();
+    if (this->income.size() > 0) {
+        this->income.clear();
+    }
+    this->access_income.V();
 }
 
 void
@@ -465,18 +491,9 @@ TCPServer::stop(void *params) {
         }
 
         std::cout << "stopped tcp server" << std::endl;
-
-        // signal user that server is ready to read cmd
-        std::cout << "[server] > ";
-        std::cout.flush();
     } else {
         std::cout << std::endl;
-
         std::cout << "server allready stopped.." << std::endl;
-
-        // signal user that server is ready to read cmd
-        std::cout << "[server] > ";
-        std::cout.flush();
     }
 }
 
@@ -542,8 +559,9 @@ accept_conn(void * v) {
             sockaddr_storage addr;
             socklen_t socklen = sizeof(addr);
 
-            std::cout << "my server mode is: " << server->server_mode << std::endl;
-            std::cout << "accept.." << std::endl;
+            // std::cout << "my server mode is: " << server->server_mode << std::endl;
+            // std::cout << "accept.." << std::endl;
+            
             // conn = accept4(server->sd, (sockaddr*)&addr, &socklen, SOCK_NONBLOCK);
             conn = accept(server->sd, (sockaddr*)&addr, &socklen);
 
@@ -563,22 +581,18 @@ accept_conn(void * v) {
 
                 if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext) == 0)
                 {
-                    std::cout << "create client thread for con .." << conn << std::endl;
+                    // std::cout << "create client thread for con .." << conn << std::endl;
                 } else {
                     perror("Failed to create thread");
                 }
 
                 // send connection established to new client..
-                std::cout << "send connection established.." << std::endl;
+                // std::cout << "send connection established.." << std::endl;
                 std::string data = SERVER_CON_ESTABLISHED;
                 if (send(conn, data.c_str(), strlen(data.c_str()), 0) < 0) {
                     perror("send failed!\n");
                 }
-                std::cout << "finished sending connection established.." << std::endl;
-
-                // signal user that server is ready to read cmd
-                std::cout << "[server] > ";
-                std::cout.flush();
+                // std::cout << "finished sending connection established.." << std::endl;
             }
         } else if (FD_ISSET(STDIN_FILENO, &server->read_flags)) {
             // std::cout << "you typed: " << sfd << std::endl;
@@ -599,7 +613,6 @@ listener(void *v) {
     std::pair<TCPServer*, int> *context = ((std::pair<TCPServer*, int> *) v);
     int conn = context->second;
 
-    std::cout << std::endl;
     std::cout << "listener attached to conn " << conn << std::endl;
 
     // signal user that server is ready to read cmd
@@ -658,21 +671,29 @@ listener(void *v) {
                 break;
             } else {
                 std::string msg = read_buffer;
-                std::cout << std::endl;
-                std::cout << "received: " << std::endl;
-                std::cout << msg << std::endl;
+                context->first->access_income.P();
+                if (context->first->income[conn] == NULL) {
+                    context->first->income[conn] = new std::vector<std::string>();
+                }
+                
+                context->first->income[conn]->push_back(msg); 
+                context->first->access_income.V();
+                
+                // std::cout << std::endl;
+                // std::cout << "received: " << std::endl;
+                // std::cout << msg << std::endl;
 
                 // send ack
-                std::cout << "sending ack.." << std::endl;
+                // std::cout << "sending ack.." << std::endl;
                 std::string data = SERVER_RECEIVED;
                 if (send(conn, data.c_str(), strlen(data.c_str()), 0) < 0) {
                     perror("send ack failed!\n");
                 }
-                std::cout << "finished sending ack.." << std::endl;
+                // std::cout << "finished sending ack.." << std::endl;
 
                 // signal user that server is ready to read cmd
-                std::cout << "[server] > ";
-                std::cout.flush();
+                // std::cout << "[server] > ";
+                // std::cout.flush();
             }
         } else {
             context->first->select_client.V();

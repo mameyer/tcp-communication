@@ -183,7 +183,7 @@ receiver(void * v) {
             actBytesRead = recv(client->get_sock(), buffer, sizeof(buffer), 0);
 
             if (actBytesRead < 0) {
-                perror("receive failed!");
+                // perror("receive failed!");
                 break;
             } else if (actBytesRead == 0) {
                 std::cout << "connection reset.. " << std::endl;

@@ -35,6 +35,8 @@ enum CmdIds {
     CMD_STOP,
     CMD_RUN,
     CMD_EXIT,
+    CMD_PRINT_INCOME,
+    CMD_CLR_INCOME,
     CMD_NUM_IDS
 };
 
@@ -68,7 +70,10 @@ public:
     Sema access_connections;
     Sema select_client;
     Sema cmds_to_execute;
+    Sema access_income;
     bool connections_to_userspace;
+    
+    std::map<int, std::vector<std::string>*> income;
 
     std::queue<Cmd *> cmds_requested;
 
@@ -104,6 +109,8 @@ public:
     void cmd_print_connections(void *params);
     void cmd_show_help(void *params);
     void cmd_exit(void *params);
+    void print_income(void *params);
+    void clr_income(void *params);
     
     void set_exit_extern(Sema *extern_exit);
 };
