@@ -1,9 +1,5 @@
 #include "main.hpp"
 #include "TCPServer.hpp"
-extern "C"
-{
-#include "../common/assync_read.h"
-}
 
 #include <cstdlib>
 #include <iostream>

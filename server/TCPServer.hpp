@@ -71,6 +71,7 @@ public:
     Sema select_client;
     Sema cmds_to_execute;
     Sema access_income;
+    Sema access_flush_stdin;
     bool connections_to_userspace;
     
     std::map<int, std::vector<std::string>*> income;
@@ -113,6 +114,7 @@ public:
     void clr_income(void *params);
     
     void set_exit_extern(Sema *extern_exit);
+    void flush_stdin();
 };
 
 #endif

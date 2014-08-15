@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdin(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -97,11 +97,8 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     }
 
     std::cout << "server successfully started.." << std::endl;
-    std::cout << std::endl;
-
-    // signal user that server is ready to read cmd
-    std::cout << "[server] > ";
-    std::cout.flush();
+    
+    this->flush_stdin();
 }
 
 void *
@@ -114,7 +111,10 @@ execute_cmd(void* v)
         server->cmds_to_execute.P();
 
         if (server->server_mode == CLOSING) {
-            std::cout << "break execute_cmd" << std::endl;
+            server->access_flush_stdin.P();
+            std::cout << "break execute_cmd";
+            server->flush_stdin();
+            server->access_flush_stdin.V();
             break;
         }
 
@@ -124,9 +124,7 @@ execute_cmd(void* v)
             (server->*(server->cmdHandlers[cmd->id]))(cmd);
             delete cmd;
 
-            // signal user that server is ready to read cmd
-            std::cout << "[server] > ";
-            std::cout.flush();
+            server->flush_stdin();
         }
     }
 }
@@ -245,7 +243,10 @@ collect(void * v) {
 
             std::cout << std::endl;
             if (pthread_join(*thread, 0) == 0) {
-                std::cout << "joined client thread " << conn << std::endl;
+                server->access_flush_stdin.P();
+                std::cout << "joined client thread " << conn;
+                server->flush_stdin();
+                server->access_flush_stdin.V();
             } else {
                 perror("Failed to join thread");
             }
@@ -256,10 +257,6 @@ collect(void * v) {
             server->connections_to_userspace = true;
             server->access_connections.V();
             close(conn);
-
-            // signal user that server is ready to read cmd
-            std::cout << "[server] > ";
-            std::cout.flush();
 
             if (server->server_mode == STOPPING) {
                 // your job is done when all connections are closed..
@@ -395,13 +392,10 @@ TCPServer::run(void *params) {
         }
 
         if (num_conns < 0) {
-            std::cout << std::endl;
-
-            std::cout << "wrong params for running server.." << std::endl;
-
-            // signal user that server is ready to read cmd
-            std::cout << "[server] > ";
-            std::cout.flush();
+            this->access_flush_stdin.P();
+            std::cout << "wrong params for running server..";
+            this->flush_stdin();
+            this->access_flush_stdin.V();
 
             return;
         }
@@ -608,16 +602,24 @@ accept_conn(void * v) {
     }
 }
 
+void
+TCPServer::flush_stdin() {
+    std::cout << std::endl;
+
+    // signal user that server is ready to read cmd
+    std::cout << "[server] > ";
+    std::cout.flush();
+}
+
 void *
 listener(void *v) {
     std::pair<TCPServer*, int> *context = ((std::pair<TCPServer*, int> *) v);
     int conn = context->second;
 
-    std::cout << "listener attached to conn " << conn << std::endl;
-
-    // signal user that server is ready to read cmd
-    std::cout << "[server] > ";
-    std::cout.flush();
+    context->first->access_flush_stdin.P();
+    std::cout << "listener attached to conn " << conn;
+    context->first->flush_stdin();
+    context->first->access_flush_stdin.V();
 
     while(1) {
         context->first->select_client.P();
@@ -627,17 +629,10 @@ listener(void *v) {
             context->first->select_client.V();
 
             // send BYE
-            std::cout << std::endl;
-            std::cout << "send bye" << std::endl;
             std::string data = SERVER_BYE;
             if (send(conn, data.c_str(), strlen(data.c_str()), 0) < 0) {
                 perror("send failed!\n");
             }
-            std::cout << "finished sending bye" << std::endl;
-
-            // signal user that server is ready to read cmd
-            std::cout << "[server] > ";
-            std::cout.flush();
 
             // register in join queue
             context->first->register_join_reqeust(conn);
@@ -656,17 +651,15 @@ listener(void *v) {
             } else if (numRead == 0) {
                 // client disconnect
                 getpeername(conn , (struct sockaddr*)&context->first->addr , (socklen_t*)&context->first->addrlen);
-                std::cout << std::endl;
-                printf("Host disconnected , ip %s , port %d \n" , inet_ntoa(context->first->addr.sin_addr) , ntohs(context->first->addr.sin_port));
+                context->first->access_flush_stdin.P();
+                printf("Host disconnected, ip %s, port %d" , inet_ntoa(context->first->addr.sin_addr) , ntohs(context->first->addr.sin_port));
+                context->first->flush_stdin();
+                context->first->access_flush_stdin.V();
 
                 context->first->register_join_reqeust(conn);
                 context->first->threads_to_join.V();
 
                 delete context;
-
-                // signal user that server is ready to read cmd
-                std::cout << "[server] > ";
-                std::cout.flush();
 
                 break;
             } else {
@@ -690,10 +683,6 @@ listener(void *v) {
                     perror("send ack failed!\n");
                 }
                 // std::cout << "finished sending ack.." << std::endl;
-
-                // signal user that server is ready to read cmd
-                // std::cout << "[server] > ";
-                // std::cout.flush();
             }
         } else {
             context->first->select_client.V();

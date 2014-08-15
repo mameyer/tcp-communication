@@ -15,7 +15,6 @@ include_directories(
 )
 
 add_executable(server
-    common/assync_read.c
     server/main.cpp
     server/TCPServer.cpp
     common/common.cpp
