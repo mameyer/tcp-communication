@@ -2,6 +2,7 @@
 #define TCPSERVER_HPP__
 
 #include "../common/Sema.hh"
+#include "../common/Subject.hpp"
 
 #include <string>
 #include <vector>
@@ -54,7 +55,7 @@ public:
     }
 };
 
-class TCPServer
+class TCPServer : public Subject
 {
 private:
     pthread_t collector;
@@ -71,10 +72,14 @@ public:
     Sema select_client;
     Sema cmds_to_execute;
     Sema access_income;
-    Sema access_flush_stdin;
+    Sema access_flush_stdout;
+    Sema access_next_income;
     bool connections_to_userspace;
     
     std::map<int, std::vector<std::string>*> income;
+    std::string next_icome;
+    
+    std::string read_next_income();
 
     std::queue<Cmd *> cmds_requested;
 
@@ -114,7 +119,11 @@ public:
     void clr_income(void *params);
     
     void set_exit_extern(Sema *extern_exit);
-    void flush_stdin();
+    void flush_stdout(std::string msg);
+    
+    void attach(Observer *observer);
+    void detach(Observer *observer);
+    void notifyObserver();
 };
 
 #endif

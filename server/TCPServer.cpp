@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdin(1), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_next_income(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -79,7 +79,7 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     this->cmdHandlers[CMD_EXIT] = &TCPServer::cmd_exit;
     this->cmdHandlers[CMD_PRINT_INCOME] = &TCPServer::print_income;
     this->cmdHandlers[CMD_CLR_INCOME] = &TCPServer::clr_income;
-    
+
     std::cout << "server mode running is: " << RUNNING << std::endl;
     std::cout << "sever mode stopping is: " << STOPPING << std::endl;
 
@@ -87,7 +87,7 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     if (pthread_create(&this->runner, 0, accept_conn, (void *)this) == 0) {
         std::cout << "runner thread created.." << std::endl;
     } else {
-        perror("!failed to create runner thread"); 
+        perror("!failed to create runner thread");
     }
 
     if (pthread_create(&this->stdin_command_reader, 0, execute_cmd, (void *)this) == 0) {
@@ -97,8 +97,7 @@ TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access
     }
 
     std::cout << "server successfully started.." << std::endl;
-    
-    this->flush_stdin();
+    this->flush_stdout("");
 }
 
 void *
@@ -111,10 +110,7 @@ execute_cmd(void* v)
         server->cmds_to_execute.P();
 
         if (server->server_mode == CLOSING) {
-            server->access_flush_stdin.P();
-            std::cout << "break execute_cmd";
-            server->flush_stdin();
-            server->access_flush_stdin.V();
+            server->flush_stdout("break execute_cmd");
             break;
         }
 
@@ -123,8 +119,6 @@ execute_cmd(void* v)
         if ((cmd != NULL) && (cmd->id != CMD_UNAVAIL)) {
             (server->*(server->cmdHandlers[cmd->id]))(cmd);
             delete cmd;
-
-            server->flush_stdin();
         }
     }
 }
@@ -198,12 +192,15 @@ TCPServer::cmd_exit(void *params) {
 
 void
 TCPServer::cmd_show_help(void *params) {
-    std::cout << "*** HELP: availabe commands are" << std::endl;
+    std::stringstream msg;
+    msg << "*** HELP: availabe commands are" << std::endl;
 
     std::map<std::string, enum CmdIds>::iterator it;
     for (it = this->available_commands.begin(); it != this->available_commands.end(); it++) {
-        std::cout << it->first << std::endl;
+        msg << it->first << std::endl;
     }
+
+    flush_stdout(msg.str());
 }
 
 int
@@ -241,12 +238,10 @@ collect(void * v) {
             // don´t close con!
             pthread_t *thread = server->find_thread(conn);
 
-            std::cout << std::endl;
             if (pthread_join(*thread, 0) == 0) {
-                server->access_flush_stdin.P();
-                std::cout << "joined client thread " << conn;
-                server->flush_stdin();
-                server->access_flush_stdin.V();
+                std::stringstream msg;
+                msg << "joined client thread " << conn;
+                server->flush_stdout(msg.str());
             } else {
                 perror("Failed to join thread");
             }
@@ -362,7 +357,10 @@ TCPServer::close_conns() {
  */
 void
 TCPServer::init_listen(int num_conns) {
-    std::cout << "init listen to " << num_conns << " conns" << std::endl;
+    std::stringstream msg;
+    msg << "init listen to " << num_conns << " conns";
+    this->flush_stdout(msg.str());
+
     assert (this->sd >= 0);
 
     if (listen(this->sd, num_conns) < 0) {
@@ -392,17 +390,14 @@ TCPServer::run(void *params) {
         }
 
         if (num_conns < 0) {
-            this->access_flush_stdin.P();
-            std::cout << "wrong params for running server..";
-            this->flush_stdin();
-            this->access_flush_stdin.V();
+            this->flush_stdout("wrong params for running server..");
 
             return;
         }
 
         // create thread for joining listener threads (sperate thread for every connection)
         if (pthread_create(&this->collector, 0, collect, (void *)this) == 0) {
-            std::cout << "collector thread created.." << std::endl;
+            this->flush_stdout("collector thread created..");
         } else {
             perror("failed to create collector thread");
         }
@@ -411,8 +406,7 @@ TCPServer::run(void *params) {
 
         this->server_mode = RUNNING;
     } else {
-        std::cout << std::endl;
-        std::cout << "server allready running.." << std::endl;
+        this->flush_stdout("server allready running..");
     }
 }
 
@@ -428,17 +422,20 @@ TCPServer::print_income(void *params) {
         std::map<int, std::vector<std::string>*> inc = this->income;
         this->access_income.V();
         std::map<int, std::vector<std::string>*>::iterator it;
-        
+        std::stringstream msg;
+
         for (it = inc.begin(); it != inc.end(); it++) {
             if (it->second != NULL) {
                 std::vector<std::string> in = *it->second;
-                std::vector<std::string>::iterator iter; 
-                
+                std::vector<std::string>::iterator iter;
+
                 for (iter = in.begin(); iter != in.end(); iter++) {
-                    std::cout << *iter << std::endl;
+                    msg << *iter << std::endl;
                 }
             }
         }
+
+        this->flush_stdout(msg.str());
     } else {
         this->access_income.V();
     }
@@ -555,7 +552,7 @@ accept_conn(void * v) {
 
             // std::cout << "my server mode is: " << server->server_mode << std::endl;
             // std::cout << "accept.." << std::endl;
-            
+
             // conn = accept4(server->sd, (sockaddr*)&addr, &socklen, SOCK_NONBLOCK);
             conn = accept(server->sd, (sockaddr*)&addr, &socklen);
 
@@ -567,7 +564,6 @@ accept_conn(void * v) {
                 // set_nonblock(conn);
 
                 server->connections[conn] = NULL;
-                std::cout << std::endl;
 
                 std::pair<TCPServer*, int> *listenerContext = new std::pair<TCPServer*, int>();
                 listenerContext->first = server;
@@ -575,7 +571,10 @@ accept_conn(void * v) {
 
                 if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext) == 0)
                 {
-                    // std::cout << "create client thread for con .." << conn << std::endl;
+                    std::stringstream msg;
+                    msg << "create client thread for con .." << conn;
+                    server->flush_stdout(msg.str());
+
                 } else {
                     perror("Failed to create thread");
                 }
@@ -603,12 +602,33 @@ accept_conn(void * v) {
 }
 
 void
-TCPServer::flush_stdin() {
+TCPServer::flush_stdout(std::string msg) {
+    this->access_flush_stdout.P();
     std::cout << std::endl;
+    std::cout << msg << std::endl;
+
+    this->access_next_income.P();
+    this->next_icome = msg;
+    this->access_next_income.V();
+    
+    this->notifyObserver();
 
     // signal user that server is ready to read cmd
     std::cout << "[server] > ";
     std::cout.flush();
+    this->access_flush_stdout.V();
+}
+
+std::string
+TCPServer::read_next_income()
+{
+    std::string in;
+    
+    this->access_next_income.P();
+    in = this->next_icome;
+    this->access_next_income.V();
+    
+    return in;
 }
 
 void *
@@ -616,10 +636,9 @@ listener(void *v) {
     std::pair<TCPServer*, int> *context = ((std::pair<TCPServer*, int> *) v);
     int conn = context->second;
 
-    context->first->access_flush_stdin.P();
-    std::cout << "listener attached to conn " << conn;
-    context->first->flush_stdin();
-    context->first->access_flush_stdin.V();
+    std::stringstream msg;
+    msg << "listener attached to conn " << conn;
+    context->first->flush_stdout(msg.str());
 
     while(1) {
         context->first->select_client.P();
@@ -651,10 +670,9 @@ listener(void *v) {
             } else if (numRead == 0) {
                 // client disconnect
                 getpeername(conn , (struct sockaddr*)&context->first->addr , (socklen_t*)&context->first->addrlen);
-                context->first->access_flush_stdin.P();
-                printf("Host disconnected, ip %s, port %d" , inet_ntoa(context->first->addr.sin_addr) , ntohs(context->first->addr.sin_port));
-                context->first->flush_stdin();
-                context->first->access_flush_stdin.V();
+                std::stringstream msg;
+                msg << "Host disconnected, ip " << std::string(inet_ntoa(context->first->addr.sin_addr)) << ", port " << ntohs(context->first->addr.sin_port);
+                context->first->flush_stdout(msg.str());
 
                 context->first->register_join_reqeust(conn);
                 context->first->threads_to_join.V();
@@ -668,10 +686,10 @@ listener(void *v) {
                 if (context->first->income[conn] == NULL) {
                     context->first->income[conn] = new std::vector<std::string>();
                 }
-                
-                context->first->income[conn]->push_back(msg); 
+
+                context->first->income[conn]->push_back(msg);
                 context->first->access_income.V();
-                
+
                 // std::cout << std::endl;
                 // std::cout << "received: " << std::endl;
                 // std::cout << msg << std::endl;
@@ -700,7 +718,9 @@ TCPServer::get_sd() {
 void
 TCPServer::register_join_reqeust(int conn) {
     this->join_requested.push(conn);
-    std::cout << "register join request for thread with conn " << conn << std::endl;
+    std::stringstream msg;
+    msg << "register join request for thread with conn " << conn;
+    this->flush_stdout(msg.str());
 }
 
 Cmd *
@@ -740,7 +760,9 @@ TCPServer::erase_conn(int conn) {
         int size_before = this->connections.size();
         this->connections.erase(it);
         if (size_before > this->connections.size()) {
-            std::cout << "erased conn " << conn << std::endl;
+            std::stringstream msg;
+            msg << "erased conn " << conn;
+            this->flush_stdout(msg.str());
             return true;
         }
     }
@@ -755,4 +777,28 @@ TCPServer::get_conns() {
     }
 
     return this->connections;
+}
+
+void
+TCPServer::attach(Observer *observer)
+{
+    this->observers.push_back(observer);
+    this->flush_stdout("attached observer");
+}
+
+void
+TCPServer::detach(Observer *observer)
+{
+    this->observers.remove(observer);
+    this->flush_stdout("detached observer");
+}
+
+void
+TCPServer::notifyObserver()
+{
+    std::list<Observer *>::iterator it;
+    
+    for (it = this->observers.begin(); it != this->observers.end(); it++) {
+        (*it)->update();
+    }
 }
