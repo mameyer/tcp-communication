@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_next_income(1), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_next_srv_msg(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -607,11 +607,11 @@ TCPServer::flush_stdout(std::string msg) {
     std::cout << std::endl;
     std::cout << msg << std::endl;
 
-    this->access_next_income.P();
-    this->next_icome = msg;
-    this->access_next_income.V();
+    this->access_next_srv_msg.P();
+    this->next_srv_msg = msg;
+    this->access_next_srv_msg.V();
     
-    this->notifyObserver();
+    this->notifyObserver(&Observer::update_messages);
 
     // signal user that server is ready to read cmd
     std::cout << "[server] > ";
@@ -620,13 +620,13 @@ TCPServer::flush_stdout(std::string msg) {
 }
 
 std::string
-TCPServer::read_next_income()
+TCPServer::read_srv_msg()
 {
     std::string in;
     
-    this->access_next_income.P();
-    in = this->next_icome;
-    this->access_next_income.V();
+    this->access_next_srv_msg.P();
+    in = this->next_srv_msg;
+    this->access_next_srv_msg.V();
     
     return in;
 }
@@ -689,6 +689,7 @@ listener(void *v) {
 
                 context->first->income[conn]->push_back(msg);
                 context->first->access_income.V();
+                context->first->notifyObserver(&Observer::update_income);
 
                 // std::cout << std::endl;
                 // std::cout << "received: " << std::endl;
@@ -794,11 +795,11 @@ TCPServer::detach(Observer *observer)
 }
 
 void
-TCPServer::notifyObserver()
+TCPServer::notifyObserver(void (Observer::*func)())
 {
     std::list<Observer *>::iterator it;
     
     for (it = this->observers.begin(); it != this->observers.end(); it++) {
-        (*it)->update();
+        ((*it)->*func)();
     }
 }

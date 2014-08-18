@@ -73,13 +73,13 @@ public:
     Sema cmds_to_execute;
     Sema access_income;
     Sema access_flush_stdout;
-    Sema access_next_income;
+    Sema access_next_srv_msg;
     bool connections_to_userspace;
     
     std::map<int, std::vector<std::string>*> income;
-    std::string next_icome;
+    std::string next_srv_msg;
     
-    std::string read_next_income();
+    std::string read_srv_msg();
 
     std::queue<Cmd *> cmds_requested;
 
@@ -123,7 +123,7 @@ public:
     
     void attach(Observer *observer);
     void detach(Observer *observer);
-    void notifyObserver();
+    void notifyObserver(void (Observer::*func)());
 };
 
 #endif

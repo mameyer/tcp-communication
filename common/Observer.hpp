@@ -3,7 +3,8 @@
 
 class Observer {
 public:
-    virtual void update() = 0;
+    virtual void update_messages() {};
+    virtual void update_income() {};
 };
 
 #endif

@@ -11,7 +11,7 @@ public:
     
     virtual void attach(Observer *observer) = 0;
     virtual void detach(Observer *observer) = 0;
-    virtual void notifyObserver() = 0;
+    virtual void notifyObserver(void (Observer::*func)()) = 0;
 };
 
 #endif
