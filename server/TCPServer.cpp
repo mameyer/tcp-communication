@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_next_srv_msg(1), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_srv_msgs(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -419,20 +419,14 @@ void
 TCPServer::print_income(void *params) {
     this->access_income.P();
     if (this->income.size() > 0) {
-        std::map<int, std::vector<std::string>*> inc = this->income;
+        std::queue<std::pair<int, std::string> > inc = this->income;
         this->access_income.V();
-        std::map<int, std::vector<std::string>*>::iterator it;
         std::stringstream msg;
-
-        for (it = inc.begin(); it != inc.end(); it++) {
-            if (it->second != NULL) {
-                std::vector<std::string> in = *it->second;
-                std::vector<std::string>::iterator iter;
-
-                for (iter = in.begin(); iter != in.end(); iter++) {
-                    msg << *iter << std::endl;
-                }
-            }
+        
+        while (!inc.empty()) {
+            std::pair<int, std::string> entry = inc.front();
+            msg << "'" << entry.second << "'" << ". for: " << entry.first << std::endl;
+            inc.pop();
         }
 
         this->flush_stdout(msg.str());
@@ -445,7 +439,9 @@ void
 TCPServer::clr_income(void *params) {
     this->access_income.P();
     if (this->income.size() > 0) {
-        this->income.clear();
+        while (!this->income.empty()) {
+            this->income.pop();
+        }
     }
     this->access_income.V();
 }
@@ -607,9 +603,9 @@ TCPServer::flush_stdout(std::string msg) {
     std::cout << std::endl;
     std::cout << msg << std::endl;
 
-    this->access_next_srv_msg.P();
-    this->next_srv_msg = msg;
-    this->access_next_srv_msg.V();
+    this->access_srv_msgs.P();
+    this->srv_msgs.push(msg);
+    this->access_srv_msgs.V();
     
     this->notifyObserver(&Observer::update_messages);
 
@@ -619,16 +615,26 @@ TCPServer::flush_stdout(std::string msg) {
     this->access_flush_stdout.V();
 }
 
-std::string
-TCPServer::read_srv_msg()
+std::pair< int, std::string >
+TCPServer::next_income()
 {
-    std::string in;
-    
-    this->access_next_srv_msg.P();
-    in = this->next_srv_msg;
-    this->access_next_srv_msg.V();
-    
-    return in;
+    std::pair< int, std::string > next_income;
+    this->access_income.P();
+    next_income = this->income.front();
+    this->income.pop();
+    this->access_income.V();
+    return next_income;
+}
+
+std::string
+TCPServer::next_srv_msg()
+{
+    std::string next_srv_msg;
+    this->access_srv_msgs.P();
+    next_srv_msg = this->srv_msgs.front();
+    this->srv_msgs.pop();
+    this->access_srv_msgs.V();
+    return next_srv_msg;
 }
 
 void *
@@ -683,11 +689,7 @@ listener(void *v) {
             } else {
                 std::string msg = read_buffer;
                 context->first->access_income.P();
-                if (context->first->income[conn] == NULL) {
-                    context->first->income[conn] = new std::vector<std::string>();
-                }
-
-                context->first->income[conn]->push_back(msg);
+                context->first->income.push(std::make_pair(conn, msg));
                 context->first->access_income.V();
                 context->first->notifyObserver(&Observer::update_income);
 

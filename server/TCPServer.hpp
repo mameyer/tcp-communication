@@ -73,13 +73,14 @@ public:
     Sema cmds_to_execute;
     Sema access_income;
     Sema access_flush_stdout;
-    Sema access_next_srv_msg;
+    Sema access_srv_msgs;
     bool connections_to_userspace;
     
-    std::map<int, std::vector<std::string>*> income;
-    std::string next_srv_msg;
+    std::queue<std::pair<int, std::string> > income;
+    std::queue<std::string> srv_msgs;
     
-    std::string read_srv_msg();
+    std::pair<int, std::string> next_income();
+    std::string next_srv_msg();
 
     std::queue<Cmd *> cmds_requested;
 
