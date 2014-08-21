@@ -17,7 +17,7 @@ int main() {
 
     TCPClient *clients[NUM_TEST_CLIENTS];
     for (int i=0; i<NUM_TEST_CLIENTS; i++) {
-        clients[i] = new TCPClient("127.0.0.1", 7198);
+        clients[i] = new TCPClient("127.0.0.1", 7777);
     }
 
     //TCPClient *client = new TCPClient("x02.informatik.uni-bremen.de", 7160);

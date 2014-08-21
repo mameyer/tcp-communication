@@ -16,7 +16,7 @@ int main() {
     std::cout << "****************************************" << std::endl;
     
     Sema exit(0);
-    TCPServer *server = new TCPServer("localhost", 7198);
+    TCPServer *server = new TCPServer("localhost", 7777);
     server->set_exit_extern(&exit);
     
     /*std::ostringstream ss;

@@ -8,6 +8,7 @@
 #include <vector>
 #include <map>
 #include <queue>
+#include <stack>
 #include <sys/select.h>
 #include <netinet/in.h>
 
@@ -74,10 +75,12 @@ public:
     Sema access_income;
     Sema access_flush_stdout;
     Sema access_srv_msgs;
-    bool connections_to_userspace;
     
-    std::queue<std::pair<int, std::string> > income;
-    std::queue<std::string> srv_msgs;
+    int last_conn_erased;
+    int last_conn_added;
+    
+    std::stack<std::pair<int, std::string> > income;
+    std::stack<std::string> srv_msgs;
     
     std::pair<int, std::string> next_income();
     std::string next_srv_msg();

@@ -25,7 +25,7 @@
  * @param address specifies the address the server is running on.
  * @param port the port the server listens on.
  */
-TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), connections_to_userspace(true), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_srv_msgs(1), sd(-1) {
+TCPServer::TCPServer(std::string address, int port) : threads_to_join(0), access_connections(1), select_client(0), cmds_to_execute(0), access_income(1), access_flush_stdout(1), access_srv_msgs(1), sd(-1) {
     std::cout << "starting server.." << std::endl;
 
     this->sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -247,9 +247,7 @@ collect(void * v) {
             }
 
             server->access_connections.P();
-            server->connections_to_userspace = false;
             server->erase_conn(conn);
-            server->connections_to_userspace = true;
             server->access_connections.V();
             close(conn);
 
@@ -346,6 +344,8 @@ TCPServer::close_conns() {
             }
 
             this->connections.erase(toErase);
+            this->last_conn_erased = conn;
+            this->notifyObserver(&Observer::rm_conn);
         }
     }
 }
@@ -419,12 +419,12 @@ void
 TCPServer::print_income(void *params) {
     this->access_income.P();
     if (this->income.size() > 0) {
-        std::queue<std::pair<int, std::string> > inc = this->income;
+        std::stack<std::pair<int, std::string> > inc = this->income;
         this->access_income.V();
         std::stringstream msg;
         
         while (!inc.empty()) {
-            std::pair<int, std::string> entry = inc.front();
+            std::pair<int, std::string> entry = inc.top();
             msg << "'" << entry.second << "'" << ". for: " << entry.first << std::endl;
             inc.pop();
         }
@@ -564,6 +564,9 @@ accept_conn(void * v) {
                 std::pair<TCPServer*, int> *listenerContext = new std::pair<TCPServer*, int>();
                 listenerContext->first = server;
                 listenerContext->second = conn;
+                
+                server->last_conn_added = conn;
+                server->notifyObserver(&Observer::add_conn);
 
                 if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext) == 0)
                 {
@@ -620,8 +623,7 @@ TCPServer::next_income()
 {
     std::pair< int, std::string > next_income;
     this->access_income.P();
-    next_income = this->income.front();
-    this->income.pop();
+    next_income = this->income.top();
     this->access_income.V();
     return next_income;
 }
@@ -631,8 +633,7 @@ TCPServer::next_srv_msg()
 {
     std::string next_srv_msg;
     this->access_srv_msgs.P();
-    next_srv_msg = this->srv_msgs.front();
-    this->srv_msgs.pop();
+    next_srv_msg = this->srv_msgs.top();
     this->access_srv_msgs.V();
     return next_srv_msg;
 }
@@ -766,6 +767,8 @@ TCPServer::erase_conn(int conn) {
             std::stringstream msg;
             msg << "erased conn " << conn;
             this->flush_stdout(msg.str());
+            this->last_conn_erased = conn;
+            this->notifyObserver(&Observer::rm_conn);
             return true;
         }
     }
@@ -775,11 +778,11 @@ TCPServer::erase_conn(int conn) {
 
 std::map<int, pthread_t>
 TCPServer::get_conns() {
-    while (!this->connections_to_userspace) {
+    this->access_connections.P();
+    std::map<int, pthread_t> conns = this->connections;
+    this->access_connections.V();
 
-    }
-
-    return this->connections;
+    return conns;
 }
 
 void
