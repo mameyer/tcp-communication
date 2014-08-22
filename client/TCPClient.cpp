@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-TCPClient::TCPClient(std::string address, int port) : access_read_mode(1) ,server_address(address), destination_port(port), sock(-1) {
+TCPClient::TCPClient(std::string address, int port) : access_read_mode(1), access_income(1), server_address(address), destination_port(port), sock(-1) {
     this->read_mode = INCOME;
     this->sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -195,6 +195,7 @@ receiver(void * v) {
 
                 client->close_conn();
                 client->running = false;
+                client->notifyObserver(&TCPObserver::handle_server_disconnect);
                 return 0;
             }
 
@@ -207,8 +208,22 @@ receiver(void * v) {
         if (allBytesRead > 0) {
             buffer[allBytesRead] = '\0';
             std::cout << "received: " << buffer << std::endl;
+            client->access_income.P();
+            client->income.push(buffer);
+            client->access_income.V();
+            client->notifyObserver(&TCPObserver::register_server_answer);
         }
     }
 
     return 0;
+}
+
+std::string
+TCPClient::next_income()
+{
+    std::string income;
+    this->access_income.P();
+    income = this->income.top();
+    this->access_income.V();
+    return income;
 }

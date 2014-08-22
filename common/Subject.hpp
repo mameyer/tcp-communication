@@ -1,17 +1,17 @@
 #ifndef SUBJECT_HPP__
 #define SUBJECT_HPP__
 
-#include "Observer.hpp"
+#include "TCPObserver.hpp"
 
 #include <list>
 
 class Subject {
 public:
-    std::list<Observer *> observers;
+    std::list<TCPObserver *> observers;
     
-    virtual void attach(Observer *observer) = 0;
-    virtual void detach(Observer *observer) = 0;
-    virtual void notifyObserver(void (Observer::*func)()) = 0;
+    virtual void attach(TCPObserver *observer);
+    virtual void detach(TCPObserver *observer);
+    virtual void notifyObserver(void (TCPObserver::*func)());
 };
 
 #endif

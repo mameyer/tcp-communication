@@ -124,10 +124,6 @@ public:
     
     void set_exit_extern(Sema *extern_exit);
     void flush_stdout(std::string msg);
-    
-    void attach(Observer *observer);
-    void detach(Observer *observer);
-    void notifyObserver(void (Observer::*func)());
 };
 
 #endif

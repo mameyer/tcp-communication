@@ -345,7 +345,7 @@ TCPServer::close_conns() {
 
             this->connections.erase(toErase);
             this->last_conn_erased = conn;
-            this->notifyObserver(&Observer::rm_conn);
+            this->notifyObserver(&TCPObserver::rm_conn);
         }
     }
 }
@@ -566,7 +566,7 @@ accept_conn(void * v) {
                 listenerContext->second = conn;
                 
                 server->last_conn_added = conn;
-                server->notifyObserver(&Observer::add_conn);
+                server->notifyObserver(&TCPObserver::add_conn);
 
                 if(pthread_create(&server->connections[conn], 0, listener, (void *)listenerContext) == 0)
                 {
@@ -610,7 +610,7 @@ TCPServer::flush_stdout(std::string msg) {
     this->srv_msgs.push(msg);
     this->access_srv_msgs.V();
     
-    this->notifyObserver(&Observer::update_messages);
+    this->notifyObserver(&TCPObserver::update_messages);
 
     // signal user that server is ready to read cmd
     std::cout << "[server] > ";
@@ -692,7 +692,7 @@ listener(void *v) {
                 context->first->access_income.P();
                 context->first->income.push(std::make_pair(conn, msg));
                 context->first->access_income.V();
-                context->first->notifyObserver(&Observer::update_income);
+                context->first->notifyObserver(&TCPObserver::update_income);
 
                 // std::cout << std::endl;
                 // std::cout << "received: " << std::endl;
@@ -768,7 +768,7 @@ TCPServer::erase_conn(int conn) {
             msg << "erased conn " << conn;
             this->flush_stdout(msg.str());
             this->last_conn_erased = conn;
-            this->notifyObserver(&Observer::rm_conn);
+            this->notifyObserver(&TCPObserver::rm_conn);
             return true;
         }
     }
@@ -783,28 +783,4 @@ TCPServer::get_conns() {
     this->access_connections.V();
 
     return conns;
-}
-
-void
-TCPServer::attach(Observer *observer)
-{
-    this->observers.push_back(observer);
-    this->flush_stdout("attached observer");
-}
-
-void
-TCPServer::detach(Observer *observer)
-{
-    this->observers.remove(observer);
-    this->flush_stdout("detached observer");
-}
-
-void
-TCPServer::notifyObserver(void (Observer::*func)())
-{
-    std::list<Observer *>::iterator it;
-    
-    for (it = this->observers.begin(); it != this->observers.end(); it++) {
-        ((*it)->*func)();
-    }
 }

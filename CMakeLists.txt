@@ -18,6 +18,7 @@ add_executable(server
     server/main.cpp
     server/TCPServer.cpp
     common/common.cpp
+    common/Subject.cpp
 )
 target_link_libraries(server pthread)
 
@@ -25,5 +26,6 @@ add_executable(client
     client/main.cpp
     client/TCPClient.cpp
     common/common.cpp
+    common/Subject.cpp
 )
 target_link_libraries(client pthread)

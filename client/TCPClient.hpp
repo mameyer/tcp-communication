@@ -10,8 +10,10 @@
 #include<arpa/inet.h> //inet_addr
 #include<netdb.h> //hostent
 #include <unistd.h>
+#include <stack>
 
 #include "../common/Sema.hh"
+#include "../common/Subject.hpp"
 
 #define RECEIVE_BUFFER_SIZE 1024
 
@@ -21,7 +23,7 @@ enum read_modes {
     INCOME, BUFFERSIZE
 };
 
-class TCPClient
+class TCPClient : public Subject
 {
 private:
     int sock;
@@ -34,6 +36,9 @@ private:
 public:
     bool running;
     Sema access_read_mode;
+    Sema access_income;
+    std::stack<std::string> income;
+    std::string next_income();
     TCPClient(std::string address, int port);
     ~TCPClient();
     void send_data(std::string data);
